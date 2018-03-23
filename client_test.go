@@ -115,6 +115,22 @@ func testConn(t *testing.T, disableEPSV bool) {
 		r.Close()
 	}
 
+	// Partial Read
+	r, err = c.Retr("tset")
+	if err != nil {
+		t.Error(err)
+	} else {
+		b1 := make([]byte, 2)
+		_, err := r.Read(b1)
+		if err != nil {
+			t.Error(err)
+		}
+		if string(b1) != testData[0:2] {
+			t.Errorf("'%s'", b1)
+		}
+		r.Close()
+	}
+
 	fileSize, err := c.FileSize("tset")
 	if err != nil {
 		t.Error(err)
