@@ -50,9 +50,9 @@ type Entry struct {
 
 // Response represents a data-connection
 type Response struct {
-	conn   net.Conn
-	c      *ServerConn
-	closed bool
+	conn     net.Conn
+	c        *ServerConn
+	complete bool
 }
 
 // Connect is an alias to Dial, for backward compatibility
@@ -572,22 +572,37 @@ func (c *ServerConn) Quit() error {
 
 // Read implements the io.Reader interface on a FTP data connection.
 func (r *Response) Read(buf []byte) (int, error) {
-	return r.conn.Read(buf)
+	n, err := r.conn.Read(buf)
+	if err == io.EOF && !r.complete {
+		r.complete = true
+		_, _, err2 := r.c.conn.ReadResponse(StatusClosingDataConnection)
+		if err2 != nil {
+			err = err2
+		}
+	}
+	return n, err
 }
 
 // Close implements the io.Closer interface on a FTP data connection.
 // After the first call, Close will do nothing and return nil.
 func (r *Response) Close() error {
-	if r.closed {
-		return nil
+	if !r.complete {
+		code, msg, err := r.c.cmd(-1, "ABOR")
+		if err != nil {
+			return err
+		}
+		if code == StatusTransfertAborted {
+			_, _, err2 := r.c.conn.ReadResponse(StatusClosingDataConnection)
+			if err2 != nil {
+				return err2
+			}
+		}
+		if code != StatusClosingDataConnection && code != StatusDataConnectionOpen {
+			return &textproto.Error{Code: code, Msg: msg}
+		}
+		r.complete = true
 	}
-	err := r.conn.Close()
-	_, _, err2 := r.c.conn.ReadResponse(StatusClosingDataConnection)
-	if err2 != nil {
-		err = err2
-	}
-	r.closed = true
-	return err
+	return r.conn.Close()
 }
 
 // SetDeadline sets the deadlines associated with the connection.
